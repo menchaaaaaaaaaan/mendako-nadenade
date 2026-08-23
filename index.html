@@ -253,9 +253,21 @@
   }
   .hint.faded{ opacity:0.35; }
 
-  /* ------- めんだこ本体 ------- */
+  /* =====================================================================
+     【めんだこ本体】画像を使う場合はここを使う
+     やり方：同じ構図・同じサイズ・同じ位置で「状態違い」のPNG(背景透明)
+     を用意し、.mendako-img を状態の数だけ重ねて置く。
+     JS側は mendako.dataset.state を切り替えているだけなので、
+     ここで見た目(どの画像を表示するか)を対応づければ動く。
+     仕様書の「おすすめ構成」6枚 (normal/happy/puru/sleep/surprised/super-happy)
+     にあわせたクラス名にしてある。3枚構成にする場合は img-normal /
+     img-happy / img-sleep の3つだけ用意し、他の data-state の行は
+     消すか normal 用の画像を使い回すよう書き換えればOK。
+     ===================================================================== */
   .body-group{
-    transform-box:fill-box;
+    position:relative;
+    width:100%;
+    height:100%;
     transform-origin:center;
     animation:bob 3.2s ease-in-out infinite;
   }
@@ -301,81 +313,26 @@
     100%{ transform:translateY(0) scale(1); }
   }
 
-  .body-fill{ fill:var(--mendako); }
-  .body-outline{ stroke:var(--mendako-line); stroke-width:2.5; }
-  .belly{ fill:var(--mendako-belly); opacity:0.85; }
-  .blush{ fill:#FF9FB8; opacity:0.55; }
-
-  /* 耳ヒレ */
-  .fin{
-    transform-box:fill-box;
-    transform-origin:center;
+  /* --- 差分画像本体：全部同じ位置に重ねておき、data-stateで出し分ける --- */
+  .mendako-img{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    display:none;         /* 基本は非表示 */
+    pointer-events:none;  /* クリック判定は親のpet-zoneが受けるので画像自体は素通し */
+    user-select:none;
+    -webkit-user-drag:none;
   }
-  .fin-left{ animation:fin-flap-l 2.6s ease-in-out infinite; }
-  .fin-right{ animation:fin-flap-r 2.6s ease-in-out infinite; }
-  @keyframes fin-flap-l{
-    0%,100%{ transform:rotate(-5deg); }
-    50%{ transform:rotate(7deg); }
-  }
-  @keyframes fin-flap-r{
-    0%,100%{ transform:rotate(5deg); }
-    50%{ transform:rotate(-7deg); }
-  }
-  .mendako-svg[data-state="super"] .fin,
-  .mendako-svg.flap-fast .fin{
-    animation-duration:0.5s;
-  }
-  .mendako-svg[data-state="sleep"] .fin{
-    animation-duration:5s;
-  }
-
-  /* 触手 */
-  .tentacle{ transform-origin:150px 205px; }
-  .tentacle path{ fill:var(--mendako-deep); stroke:var(--mendako-line); stroke-width:2; }
-  .t1{ animation:wiggle-t1 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0s; }
-  .t2{ animation:wiggle-t2 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.1s; }
-  .t3{ animation:wiggle-t3 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.2s; }
-  .t4{ animation:wiggle-t4 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.15s; }
-  .t5{ animation:wiggle-t5 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.05s; }
-  .t6{ animation:wiggle-t6 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.25s; }
-  @keyframes wiggle-t1{0%,100%{transform:rotate(-72deg);}50%{transform:rotate(-60deg);}}
-  @keyframes wiggle-t2{0%,100%{transform:rotate(-44deg);}50%{transform:rotate(-33deg);}}
-  @keyframes wiggle-t3{0%,100%{transform:rotate(-16deg);}50%{transform:rotate(-6deg);}}
-  @keyframes wiggle-t4{0%,100%{transform:rotate(16deg);}50%{transform:rotate(6deg);}}
-  @keyframes wiggle-t5{0%,100%{transform:rotate(44deg);}50%{transform:rotate(33deg);}}
-  @keyframes wiggle-t6{0%,100%{transform:rotate(72deg);}50%{transform:rotate(60deg);}}
-
-  .mendako-svg[data-state="sleep"] .tentacle{ animation-duration:4.2s !important; }
-
-  /* 顔 */
-  .eye{
-    transform-box:fill-box;
-    transform-origin:center;
-    transition:transform 0.22s ease;
-  }
-  .mendako-svg[data-state="happy"] .eye{ transform:scaleY(0.72); }
-  .mendako-svg[data-state="puru"] .eye{ transform:scale(1.08); }
-  .mendako-svg[data-state="super"] .eye{ transform:scale(1.18); }
-  .mendako-svg[data-state="sleep"] .eye{ transform:scaleY(0.06); }
-  .mendako-svg[data-state="drowsy"] .eye{ transform:scaleY(0.32); }
-  .mendako-svg[data-state="surprised"] .eye{ transform:scale(1.35); }
-  .mendako-svg.blink .eye{ transform:scaleY(0.06); }
-
-  .pupil{ fill:var(--ink); }
-  .eye-shine{ fill:#fff; opacity:0.9; }
-
-  .mouth{ display:none; }
-  .mendako-svg[data-state="normal"] .mouth-normal,
-  .mendako-svg[data-state="drowsy"] .mouth-normal{ display:block; }
-  .mendako-svg[data-state="happy"] .mouth-happy{ display:block; }
-  .mendako-svg[data-state="puru"] .mouth-puru{ display:block; }
-  .mendako-svg[data-state="sleep"] .mouth-sleep{ display:block; }
-  .mendako-svg[data-state="surprised"] .mouth-surprised{ display:block; }
-  .mendako-svg[data-state="super"] .mouth-super{ display:block; }
-  .mouth-normal,.mouth-happy,.mouth-puru,.mouth-surprised,.mouth-super{
-    fill:var(--ink);
-  }
-  .mouth-sleep{ stroke:var(--ink); stroke-width:2; stroke-linecap:round; }
+  /* 状態(data-state)ごとにどの画像を見せるかの対応表 */
+  .mendako-svg[data-state="normal"] .img-normal,
+  .mendako-svg[data-state="drowsy"] .img-normal{ display:block; } /* うとうと中はnormal画像を流用 */
+  .mendako-svg[data-state="happy"]  .img-happy{ display:block; }
+  .mendako-svg[data-state="puru"]   .img-puru{ display:block; }
+  .mendako-svg[data-state="sleep"]  .img-sleep{ display:block; }
+  .mendako-svg[data-state="surprised"] .img-surprised{ display:block; }
+  .mendako-svg[data-state="super"]  .img-super{ display:block; }
 
   /* ------- エフェクト ------- */
   .fx{
@@ -471,57 +428,30 @@
     <div class="message-bubble" id="messageBubble"></div>
 
     <div class="pet-zone" id="petZone">
-      <svg class="mendako-svg" id="mendako" viewBox="0 0 300 300" data-state="normal">
+      <!--
+        【めんだこ本体：画像置き換えポイント】
+        下の class="mendako-svg" の要素が JS からは
+        document.getElementById('mendako') として参照され、
+        data-state 属性の値でどの画像を表示するか切り替わっています。
+        (SVGタグである必要はないのでdivのまま使えます)
 
-        <!-- 触手 -->
-        <g class="tentacle t1"><path d="M150,195 C140,215 138,240 150,262 C162,240 160,215 150,195 Z"/></g>
-        <g class="tentacle t2"><path d="M150,195 C141,216 139,241 150,263 C161,241 159,216 150,195 Z"/></g>
-        <g class="tentacle t3"><path d="M150,195 C142,217 140,242 150,264 C160,242 158,217 150,195 Z"/></g>
-        <g class="tentacle t4"><path d="M150,195 C142,217 140,242 150,264 C160,242 158,217 150,195 Z"/></g>
-        <g class="tentacle t5"><path d="M150,195 C141,216 139,241 150,263 C161,241 159,216 150,195 Z"/></g>
-        <g class="tentacle t6"><path d="M150,195 C140,215 138,240 150,262 C162,240 160,215 150,195 Z"/></g>
-
-        <!-- 本体 -->
-        <g class="body-group" id="bodyGroup">
-
-          <!-- 耳ヒレ -->
-          <g class="fin fin-left">
-            <path class="body-fill body-outline" d="M92,128 C70,112 48,102 32,108 C46,124 58,140 82,146 C86,140 90,134 92,128 Z"/>
-          </g>
-          <g class="fin fin-right">
-            <path class="body-fill body-outline" d="M208,128 C230,112 252,102 268,108 C254,124 242,140 218,146 C214,140 210,134 208,128 Z"/>
-          </g>
-
-          <!-- 頭・胴体 -->
-          <ellipse class="body-fill body-outline" cx="150" cy="150" rx="70" ry="60"/>
-          <ellipse class="belly" cx="150" cy="168" rx="42" ry="30"/>
-
-          <!-- ほっぺ -->
-          <ellipse class="blush" cx="112" cy="158" rx="10" ry="6"/>
-          <ellipse class="blush" cx="188" cy="158" rx="10" ry="6"/>
-
-          <!-- 目 -->
-          <g class="eye" id="eyeLeft">
-            <circle cx="124" cy="140" r="11" fill="#fff" stroke="var(--mendako-line)" stroke-width="1.4"/>
-            <circle class="pupil" cx="124" cy="141" r="5.5"/>
-            <circle class="eye-shine" cx="122" cy="138.5" r="1.8"/>
-          </g>
-          <g class="eye" id="eyeRight">
-            <circle cx="176" cy="140" r="11" fill="#fff" stroke="var(--mendako-line)" stroke-width="1.4"/>
-            <circle class="pupil" cx="176" cy="141" r="5.5"/>
-            <circle class="eye-shine" cx="174" cy="138.5" r="1.8"/>
-          </g>
-
-          <!-- 口いろいろ -->
-          <path class="mouth mouth-normal" d="M137,160 Q150,168 163,160 Q150,166 137,160 Z"/>
-          <path class="mouth mouth-happy" d="M132,157 Q150,178 168,157 Q150,172 132,157 Z"/>
-          <ellipse class="mouth mouth-puru" cx="150" cy="163" rx="7" ry="9"/>
-          <line class="mouth mouth-sleep" x1="141" y1="161" x2="159" y2="161"/>
-          <circle class="mouth mouth-surprised" cx="150" cy="163" r="7"/>
-          <ellipse class="mouth mouth-super" cx="150" cy="164" rx="10" ry="12"/>
-
-        </g>
-      </svg>
+        画像ファイルは同じフォルダに置き、下のsrcのファイル名を
+        自分の画像に合わせて書き換えてください。
+        6枚そろわない場合は使わない<img>行を消してOK
+        (例: puru用画像がなければ img-puru の行を消すと、
+        puru状態のときは何も表示されない="normalのまま"になるので、
+        その場合は img-normal のクラスに "img-puru" も併記しておくと安全です)
+      -->
+      <div class="mendako-svg" id="mendako" data-state="normal">
+        <div class="body-group" id="bodyGroup">
+          <img class="mendako-img img-normal"    src="mendako-normal.png"     alt="めんだこ(通常)">
+          <img class="mendako-img img-happy"     src="mendako-happy.png"      alt="めんだこ(うれしい)">
+          <img class="mendako-img img-puru"      src="mendako-puru.png"       alt="めんだこ(ぷるぷる)">
+          <img class="mendako-img img-sleep"     src="mendako-sleep.png"      alt="めんだこ(すやすや)">
+          <img class="mendako-img img-surprised" src="mendako-surprised.png"  alt="めんだこ(びっくり)">
+          <img class="mendako-img img-super"     src="mendako-super-happy.png" alt="めんだこ(大喜び)">
+        </div>
+      </div>
 
       <div class="effects-layer" id="effectsLayer"></div>
     </div>
