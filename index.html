@@ -316,22 +316,25 @@
     transform-origin:center;
   }
   .body-group.pet-pulse{
-    animation:squish 0.36s ease;
+    animation:squish 0.85s cubic-bezier(0.33,0.02,0.24,1);
   }
   .mendako-svg[data-state="super"] .body-group.pet-pulse{
-    animation:squish-big 0.5s ease;
+    animation:squish-big 1.05s cubic-bezier(0.33,0.02,0.24,1);
   }
+  /* ゆっくり優しく沈んで、ふわっと戻る「もっそり」した質感のぷにぷに */
   @keyframes squish{
-    0%{ transform:scale(1,1); }
-    35%{ transform:scale(1.09,0.85); }
-    65%{ transform:scale(0.93,1.08); }
+    0%  { transform:scale(1,1); }
+    30% { transform:scale(1.045,0.945); }  /* じんわり横に広がる */
+    58% { transform:scale(0.965,1.045); }  /* ゆっくり縦に伸び返す */
+    82% { transform:scale(1.015,0.985); }  /* 小さく余韻 */
     100%{ transform:scale(1,1); }
   }
   @keyframes squish-big{
-    0%{ transform:scale(1,1); }
-    25%{ transform:scale(1.18,0.78); }
-    50%{ transform:scale(0.85,1.16); }
-    75%{ transform:scale(1.08,0.92); }
+    0%  { transform:scale(1,1); }
+    24% { transform:scale(1.08,0.90); }
+    48% { transform:scale(0.93,1.09); }
+    70% { transform:scale(1.04,0.96); }
+    88% { transform:scale(0.99,1.015); }
     100%{ transform:scale(1,1); }
   }
 
@@ -849,13 +852,15 @@
     burstEffects(level, x, y);
 
     // 顔を少し経ったら通常に戻す(撫で続けなければ)
+    // ぷにぷにアニメーションがゆっくりになった分、表情が先に戻って
+    // ちぐはぐにならないよう余韻を長めに取る
     clearTimeout(faceRelaxTimer);
     faceRelaxTimer = setTimeout(() => {
       if (!isPetting && state !== 'sleep' && state !== 'drowsy' && state !== 'surprised') {
         setFaceState('normal');
         setWiggleSpeed(2.4);
       }
-    }, 750);
+    }, 1050);
 
     // メッセージ
     const chance = level === 'storm' ? 0.55 : level === 'puru' ? 0.35 : 0.22;
