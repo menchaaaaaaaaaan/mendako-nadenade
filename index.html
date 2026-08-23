@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>めんだこなでなで</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&family=Yusei+Magic&display=swap" rel="stylesheet">
+<style>
+  /* =====================================================================
+     全体の構成マップ（このファイルの読み方）
+     ---------------------------------------------------------------------
+     ■ CSS（<style>内）
+       1. :root カラーパレット定義
+       2. 海の背景演出（ocean-bg / ray / ambient-bubble） … 常時アニメの背景
+       3. レイアウト（app / counter-panel / message-bubble / pet-zone / hint）
+          … 仕様書の「なでなでカウンター」「メッセージ」「撫でる領域」に対応
+       4. めんだこ本体（body-group / fin / tentacle / eye / mouth）
+          … 仕様書の「めんだこ本体」「リアクション」「状態管理」に対応
+          （状態は <svg data-state="..."> の値で切り替え。値は
+            normal / happy / puru / super / drowsy / sleep / surprised）
+       5. エフェクト（fx-heart / fx-sparkle / fx-bubble / fx-zzz）
+          … 仕様書の「エフェクト」に対応。JSがdivを動的に生成して表示
+
+     ■ JavaScript（<script>内、下から探すと早い）
+       1. 要素取得・メッセージプール・状態変数の宣言
+       2. エフェクト生成関数（spawnEffect / burstEffects / milestoneBurst）
+       3. 睡眠・放置まわり（drowsy → sleep → wake の一連の流れ）
+          … 仕様書の「放置」メカニクスに対応
+       4. なでなで判定（onPointerDown / onPointerMove / onPetTick）
+          … 仕様書の「撫でる」「撫でる速度への反応」「連続なでなで」に対応
+       5. 背景の泡生成・初期化
+     ===================================================================== */
+
+  :root{
+    /* ---- 海のグラデーション用カラー（背景に使用） ---- */
+    --ocean-deep:#0B4A72;    /* 一番深い部分の紺色 */
+    --ocean-mid:#5FB6DE;     /* 中間の水色 */
+    --ocean-shallow:#BDE9F7; /* 浅い部分の薄水色 */
+    --ocean-light:#EAF8FC;   /* 画面上部・一番明るい水色 */
+    --foam:#FFFFFF;          /* メッセージ吹き出しなどの白 */
+
+    /* ---- めんだこ本体のカラー ---- */
+    --mendako:#FFB3C9;        /* 体のメインカラー（頭・耳ヒレ） */
+    --mendako-deep:#FF8AAA;   /* 触手の濃いピンク */
+    --mendako-line:#C85A80;   /* 輪郭線・カウンターの数字色 */
+    --mendako-belly:#FFD6E2;  /* お腹側の薄いハイライト */
+    --ink:#4A3049;            /* 目・口・文字色 */
+
+    /* ---- エフェクト用カラー ---- */
+    --heart:#FF6F91;   /* ハートエフェクト */
+    --sparkle:#FFD873; /* キラキラエフェクト */
+    --bubble:#DFF6FF;  /* 泡エフェクト（未使用の予備変数） */
+    --panel:rgba(255,255,255,0.55); /* カウンターパネルの半透明背景 */
+  }
+
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    padding:0;
+    height:100%;
+    overflow:hidden;
+    font-family:'Zen Maru Gothic', sans-serif;
+    color:var(--ink);
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  body{
+    background:
+      radial-gradient(ellipse at 50% 0%, var(--ocean-light) 0%, var(--ocean-shallow) 45%, var(--ocean-mid) 85%, var(--ocean-deep) 100%);
+    position:relative;
+  }
+
+  /* =====================================================================
+     【背景】海の演出
+     仕様書「全体の雰囲気」に対応。ページ上部に固定表示され、常時
+     ゆらゆらと光の筋(.ray)と泡(.ambient-bubble)が上に流れ続ける。
+     ユーザー操作とは無関係な"環境演出"のパーツ。
+     ===================================================================== */
+  .ocean-bg{
+    position:fixed;
+    inset:0;
+    overflow:hidden;
+    pointer-events:none;
+    z-index:0;
+  }
+
+  .ray{
+    position:absolute;
+    top:-10%;
+    width:140px;
+    height:120%;
+    background:linear-gradient(to bottom, rgba(255,255,255,0.35), rgba(255,255,255,0));
+    transform:rotate(10deg);
+    opacity:0.5;
+    filter:blur(2px);
+  }
+  .ray:nth-child(1){ left:8%; transform:rotate(8deg); width:90px; opacity:0.35;}
+  .ray:nth-child(2){ left:32%; transform:rotate(-6deg); width:60px; opacity:0.25;}
+  .ray:nth-child(3){ left:60%; transform:rotate(12deg); width:110px; opacity:0.3;}
+  .ray:nth-child(4){ left:82%; transform:rotate(-9deg); width:70px; opacity:0.2;}
+
+  .ambient-bubble{
+    position:absolute;
+    bottom:-40px;
+    border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95), rgba(255,255,255,0.15) 60%, rgba(255,255,255,0.05) 100%);
+    border:1px solid rgba(255,255,255,0.5);
+    animation-name:ambient-rise;
+    animation-timing-function:ease-in;
+    animation-iteration-count:infinite;
+  }
+  @keyframes ambient-rise{
+    0%{ transform:translate(0,0) scale(0.9); opacity:0; }
+    8%{ opacity:0.8; }
+    50%{ transform:translate(14px,-52vh) scale(1); }
+    90%{ opacity:0.6; }
+    100%{ transform:translate(-10px,-108vh) scale(1.05); opacity:0; }
+  }
+
+  .seafloor{
+    position:absolute;
+    left:0; right:0; bottom:0;
+    height:8vh;
+    background:linear-gradient(to top, rgba(11,74,114,0.35), rgba(11,74,114,0));
+  }
+
+  /* ------- レイアウト ------- */
+  .app{
+    position:relative;
+    z-index:1;
+    height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:space-between;
+    padding:18px 16px 22px;
+  }
+
+  .counter-panel{
+    background:var(--panel);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,0.7);
+    border-radius:999px;
+    padding:8px 26px;
+    text-align:center;
+    box-shadow:0 6px 18px rgba(11,74,114,0.12);
+    transition:box-shadow 0.4s ease;
+  }
+  .counter-panel.glow{
+    box-shadow:0 0 0 4px rgba(255,216,115,0.55), 0 6px 22px rgba(255,143,90,0.35);
+  }
+  .counter-label{
+    font-size:11px;
+    letter-spacing:0.12em;
+    color:var(--ocean-deep);
+    opacity:0.75;
+    margin:0 0 2px;
+  }
+  .counter-value{
+    font-family:'Yusei Magic', 'Zen Maru Gothic', sans-serif;
+    font-size:clamp(26px,7vw,34px);
+    color:var(--mendako-line);
+    font-variant-numeric:tabular-nums;
+    line-height:1;
+    display:inline-block;
+    transform-origin:center;
+  }
+  .counter-value.bump{
+    animation:counter-bump 0.28s ease;
+  }
+  @keyframes counter-bump{
+    0%{ transform:scale(1); }
+    40%{ transform:scale(1.28); }
+    100%{ transform:scale(1); }
+  }
+
+  .stage-wrap{
+    position:relative;
+    flex:1;
+    width:100%;
+    max-width:480px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .message-bubble{
+    position:absolute;
+    top:2%;
+    left:50%;
+    transform:translate(-50%,6px);
+    background:var(--foam);
+    color:var(--ink);
+    padding:8px 18px;
+    border-radius:18px;
+    font-size:clamp(13px,3.6vw,16px);
+    font-weight:500;
+    white-space:nowrap;
+    box-shadow:0 6px 16px rgba(11,74,114,0.15);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.25s ease, transform 0.25s ease;
+    z-index:5;
+  }
+  .message-bubble::after{
+    content:"";
+    position:absolute;
+    bottom:-8px;
+    left:50%;
+    transform:translateX(-50%);
+    border:8px solid transparent;
+    border-top-color:var(--foam);
+  }
+  .message-bubble.show{
+    opacity:1;
+    transform:translate(-50%,0);
+  }
+
+  .pet-zone{
+    position:relative;
+    width:min(78vw,330px);
+    height:min(78vw,330px);
+    touch-action:none;
+    cursor:pointer;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+
+  .mendako-svg{
+    width:100%;
+    height:100%;
+    overflow:visible;
+    display:block;
+  }
+
+  .effects-layer{
+    position:absolute;
+    inset:-30% ;
+    pointer-events:none;
+    z-index:4;
+  }
+
+  .hint{
+    font-size:13px;
+    color:var(--ocean-deep);
+    opacity:0.7;
+    text-align:center;
+    transition:opacity 0.6s ease;
+    min-height:18px;
+  }
+  .hint.faded{ opacity:0.35; }
+
+  /* ------- めんだこ本体 ------- */
+  .body-group{
+    transform-box:fill-box;
+    transform-origin:center;
+    animation:bob 3.2s ease-in-out infinite;
+  }
+  .mendako-svg[data-state="sleep"] .body-group{
+    animation:breathe 3.6s ease-in-out infinite;
+  }
+  @keyframes bob{
+    0%,100%{ transform:translateY(0); }
+    50%{ transform:translateY(-5px); }
+  }
+  @keyframes breathe{
+    0%,100%{ transform:scale(1,1); }
+    50%{ transform:scale(1.02,0.97); }
+  }
+
+  .body-group.pet-pulse{
+    animation:squish 0.36s ease, bob 3.2s ease-in-out infinite;
+  }
+  .mendako-svg[data-state="super"] .body-group.pet-pulse{
+    animation:squish-big 0.5s ease;
+  }
+  @keyframes squish{
+    0%{ transform:scale(1,1); }
+    35%{ transform:scale(1.09,0.85); }
+    65%{ transform:scale(0.93,1.08); }
+    100%{ transform:scale(1,1); }
+  }
+  @keyframes squish-big{
+    0%{ transform:scale(1,1); }
+    25%{ transform:scale(1.18,0.78); }
+    50%{ transform:scale(0.85,1.16); }
+    75%{ transform:scale(1.08,0.92); }
+    100%{ transform:scale(1,1); }
+  }
+
+  .mendako-svg[data-state="surprised"] .body-group{
+    animation:startle 0.55s ease;
+  }
+  @keyframes startle{
+    0%{ transform:translateY(0) scale(1); }
+    30%{ transform:translateY(-14px) scale(1.06,0.94); }
+    60%{ transform:translateY(2px) scale(0.97,1.04); }
+    100%{ transform:translateY(0) scale(1); }
+  }
+
+  .body-fill{ fill:var(--mendako); }
+  .body-outline{ stroke:var(--mendako-line); stroke-width:2.5; }
+  .belly{ fill:var(--mendako-belly); opacity:0.85; }
+  .blush{ fill:#FF9FB8; opacity:0.55; }
+
+  /* 耳ヒレ */
+  .fin{
+    transform-box:fill-box;
+    transform-origin:center;
+  }
+  .fin-left{ animation:fin-flap-l 2.6s ease-in-out infinite; }
+  .fin-right{ animation:fin-flap-r 2.6s ease-in-out infinite; }
+  @keyframes fin-flap-l{
+    0%,100%{ transform:rotate(-5deg); }
+    50%{ transform:rotate(7deg); }
+  }
+  @keyframes fin-flap-r{
+    0%,100%{ transform:rotate(5deg); }
+    50%{ transform:rotate(-7deg); }
+  }
+  .mendako-svg[data-state="super"] .fin,
+  .mendako-svg.flap-fast .fin{
+    animation-duration:0.5s;
+  }
+  .mendako-svg[data-state="sleep"] .fin{
+    animation-duration:5s;
+  }
+
+  /* 触手 */
+  .tentacle{ transform-origin:150px 205px; }
+  .tentacle path{ fill:var(--mendako-deep); stroke:var(--mendako-line); stroke-width:2; }
+  .t1{ animation:wiggle-t1 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0s; }
+  .t2{ animation:wiggle-t2 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.1s; }
+  .t3{ animation:wiggle-t3 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.2s; }
+  .t4{ animation:wiggle-t4 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.15s; }
+  .t5{ animation:wiggle-t5 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.05s; }
+  .t6{ animation:wiggle-t6 var(--wiggle-dur,2.4s) ease-in-out infinite; animation-delay:0.25s; }
+  @keyframes wiggle-t1{0%,100%{transform:rotate(-72deg);}50%{transform:rotate(-60deg);}}
+  @keyframes wiggle-t2{0%,100%{transform:rotate(-44deg);}50%{transform:rotate(-33deg);}}
+  @keyframes wiggle-t3{0%,100%{transform:rotate(-16deg);}50%{transform:rotate(-6deg);}}
+  @keyframes wiggle-t4{0%,100%{transform:rotate(16deg);}50%{transform:rotate(6deg);}}
+  @keyframes wiggle-t5{0%,100%{transform:rotate(44deg);}50%{transform:rotate(33deg);}}
+  @keyframes wiggle-t6{0%,100%{transform:rotate(72deg);}50%{transform:rotate(60deg);}}
+
+  .mendako-svg[data-state="sleep"] .tentacle{ animation-duration:4.2s !important; }
+
+  /* 顔 */
+  .eye{
+    transform-box:fill-box;
+    transform-origin:center;
+    transition:transform 0.22s ease;
+  }
+  .mendako-svg[data-state="happy"] .eye{ transform:scaleY(0.72); }
+  .mendako-svg[data-state="puru"] .eye{ transform:scale(1.08); }
+  .mendako-svg[data-state="super"] .eye{ transform:scale(1.18); }
+  .mendako-svg[data-state="sleep"] .eye{ transform:scaleY(0.06); }
+  .mendako-svg[data-state="drowsy"] .eye{ transform:scaleY(0.32); }
+  .mendako-svg[data-state="surprised"] .eye{ transform:scale(1.35); }
+  .mendako-svg.blink .eye{ transform:scaleY(0.06); }
+
+  .pupil{ fill:var(--ink); }
+  .eye-shine{ fill:#fff; opacity:0.9; }
+
+  .mouth{ display:none; }
+  .mendako-svg[data-state="normal"] .mouth-normal,
+  .mendako-svg[data-state="drowsy"] .mouth-normal{ display:block; }
+  .mendako-svg[data-state="happy"] .mouth-happy{ display:block; }
+  .mendako-svg[data-state="puru"] .mouth-puru{ display:block; }
+  .mendako-svg[data-state="sleep"] .mouth-sleep{ display:block; }
+  .mendako-svg[data-state="surprised"] .mouth-surprised{ display:block; }
+  .mendako-svg[data-state="super"] .mouth-super{ display:block; }
+  .mouth-normal,.mouth-happy,.mouth-puru,.mouth-surprised,.mouth-super{
+    fill:var(--ink);
+  }
+  .mouth-sleep{ stroke:var(--ink); stroke-width:2; stroke-linecap:round; }
+
+  /* ------- エフェクト ------- */
+  .fx{
+    position:absolute;
+    left:50%;
+    top:50%;
+    pointer-events:none;
+    will-change:transform,opacity;
+  }
+
+  .fx-heart{
+    width:14px; height:14px;
+    background:var(--heart);
+    transform:translate(-50%,-50%) rotate(45deg);
+    animation:fx-heart-rise 1.1s ease-out forwards;
+  }
+  .fx-heart::before,.fx-heart::after{
+    content:"";
+    position:absolute;
+    width:14px; height:14px;
+    background:var(--heart);
+    border-radius:50%;
+  }
+  .fx-heart::before{ top:-7px; left:0; }
+  .fx-heart::after{ left:-7px; top:0; }
+  @keyframes fx-heart-rise{
+    0%{ transform:translate(-50%,-50%) rotate(45deg) scale(0.3); opacity:0; }
+    15%{ opacity:1; transform:translate(-50%,-50%) rotate(45deg) scale(1); }
+    100%{ transform:translate(calc(-50% + var(--dx,0px)),calc(-50% - 70px)) rotate(45deg) scale(0.9); opacity:0; }
+  }
+
+  .fx-sparkle{
+    width:12px; height:12px;
+    background:var(--sparkle);
+    clip-path:polygon(50% 0%,61% 35%,100% 50%,61% 65%,50% 100%,39% 65%,0% 50%,39% 35%);
+    animation:fx-sparkle-pop 0.9s ease-out forwards;
+  }
+  @keyframes fx-sparkle-pop{
+    0%{ transform:translate(-50%,-50%) scale(0) rotate(0deg); opacity:0; }
+    30%{ opacity:1; transform:translate(-50%,-50%) scale(1.15) rotate(80deg); }
+    100%{ transform:translate(calc(-50% + var(--dx,0px)),calc(-50% + var(--dy,-40px))) scale(0.3) rotate(160deg); opacity:0; }
+  }
+
+  .fx-bubble{
+    width:var(--size,10px); height:var(--size,10px);
+    border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95), rgba(223,246,255,0.35) 70%);
+    border:1px solid rgba(255,255,255,0.7);
+    animation:fx-bubble-rise 1.6s ease-out forwards;
+  }
+  @keyframes fx-bubble-rise{
+    0%{ transform:translate(-50%,-50%) scale(0.6); opacity:0.9; }
+    100%{ transform:translate(calc(-50% + var(--dx,0px)),-140px) scale(1.1); opacity:0; }
+  }
+
+  .fx-zzz{
+    font-family:'Yusei Magic', sans-serif;
+    color:var(--ocean-deep);
+    font-size:var(--size,16px);
+    opacity:0.8;
+    animation:fx-zzz-rise 2.4s ease-in forwards;
+  }
+  @keyframes fx-zzz-rise{
+    0%{ transform:translate(-50%,-50%) scale(0.6); opacity:0; }
+    20%{ opacity:0.85; }
+    100%{ transform:translate(calc(-50% + 24px),-90px) scale(1.2); opacity:0; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .body-group, .fin, .tentacle, .ambient-bubble{ animation:none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ocean-bg" aria-hidden="true">
+  <div class="ray"></div>
+  <div class="ray"></div>
+  <div class="ray"></div>
+  <div class="ray"></div>
+  <div id="bubbleField"></div>
+  <div class="seafloor"></div>
+</div>
+
+<div class="app">
+
+  <div class="counter-panel" id="counterPanel">
+    <p class="counter-label">なでなで回数</p>
+    <div class="counter-value" id="counterValue">0</div>
+  </div>
+
+  <div class="stage-wrap">
+    <div class="message-bubble" id="messageBubble"></div>
+
+    <div class="pet-zone" id="petZone">
+      <svg class="mendako-svg" id="mendako" viewBox="0 0 300 300" data-state="normal">
+
+        <!-- 触手 -->
+        <g class="tentacle t1"><path d="M150,195 C140,215 138,240 150,262 C162,240 160,215 150,195 Z"/></g>
+        <g class="tentacle t2"><path d="M150,195 C141,216 139,241 150,263 C161,241 159,216 150,195 Z"/></g>
+        <g class="tentacle t3"><path d="M150,195 C142,217 140,242 150,264 C160,242 158,217 150,195 Z"/></g>
+        <g class="tentacle t4"><path d="M150,195 C142,217 140,242 150,264 C160,242 158,217 150,195 Z"/></g>
+        <g class="tentacle t5"><path d="M150,195 C141,216 139,241 150,263 C161,241 159,216 150,195 Z"/></g>
+        <g class="tentacle t6"><path d="M150,195 C140,215 138,240 150,262 C162,240 160,215 150,195 Z"/></g>
+
+        <!-- 本体 -->
+        <g class="body-group" id="bodyGroup">
+
+          <!-- 耳ヒレ -->
+          <g class="fin fin-left">
+            <path class="body-fill body-outline" d="M92,128 C70,112 48,102 32,108 C46,124 58,140 82,146 C86,140 90,134 92,128 Z"/>
+          </g>
+          <g class="fin fin-right">
+            <path class="body-fill body-outline" d="M208,128 C230,112 252,102 268,108 C254,124 242,140 218,146 C214,140 210,134 208,128 Z"/>
+          </g>
+
+          <!-- 頭・胴体 -->
+          <ellipse class="body-fill body-outline" cx="150" cy="150" rx="70" ry="60"/>
+          <ellipse class="belly" cx="150" cy="168" rx="42" ry="30"/>
+
+          <!-- ほっぺ -->
+          <ellipse class="blush" cx="112" cy="158" rx="10" ry="6"/>
+          <ellipse class="blush" cx="188" cy="158" rx="10" ry="6"/>
+
+          <!-- 目 -->
+          <g class="eye" id="eyeLeft">
+            <circle cx="124" cy="140" r="11" fill="#fff" stroke="var(--mendako-line)" stroke-width="1.4"/>
+            <circle class="pupil" cx="124" cy="141" r="5.5"/>
+            <circle class="eye-shine" cx="122" cy="138.5" r="1.8"/>
+          </g>
+          <g class="eye" id="eyeRight">
+            <circle cx="176" cy="140" r="11" fill="#fff" stroke="var(--mendako-line)" stroke-width="1.4"/>
+            <circle class="pupil" cx="176" cy="141" r="5.5"/>
+            <circle class="eye-shine" cx="174" cy="138.5" r="1.8"/>
+          </g>
+
+          <!-- 口いろいろ -->
+          <path class="mouth mouth-normal" d="M137,160 Q150,168 163,160 Q150,166 137,160 Z"/>
+          <path class="mouth mouth-happy" d="M132,157 Q150,178 168,157 Q150,172 132,157 Z"/>
+          <ellipse class="mouth mouth-puru" cx="150" cy="163" rx="7" ry="9"/>
+          <line class="mouth mouth-sleep" x1="141" y1="161" x2="159" y2="161"/>
+          <circle class="mouth mouth-surprised" cx="150" cy="163" r="7"/>
+          <ellipse class="mouth mouth-super" cx="150" cy="164" rx="10" ry="12"/>
+
+        </g>
+      </svg>
+
+      <div class="effects-layer" id="effectsLayer"></div>
+    </div>
+  </div>
+
+  <p class="hint" id="hint">めんだこを撫でてね</p>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ---------------- 要素取得 ---------------- */
+  const petZone = document.getElementById('petZone');
+  const mendako = document.getElementById('mendako');
+  const bodyGroup = document.getElementById('bodyGroup');
+  const effectsLayer = document.getElementById('effectsLayer');
+  const counterValue = document.getElementById('counterValue');
+  const counterPanel = document.getElementById('counterPanel');
+  const messageBubble = document.getElementById('messageBubble');
+  const hint = document.getElementById('hint');
+
+  /* ---------------- メッセージプール ---------------- */
+  const MSG_GENTLE = ["ぷるぷる……","うれしい……","きもちいい……","もっとなでて……","ふわふわ〜","すりすり〜","ぷに……"];
+  const MSG_PURU = ["おおきくぷるぷる！","たのしい〜！","もっともっと！","きゅう〜んと幸せ","からだがあったかい……"];
+  const MSG_SUPER = ["しあわせすぎる……！","めんだこ、感激！","キラキラがとまらない〜","からだじゅうぷるぷる！"];
+  const MSG_WAKE = ["わっ、びっくり！","ん……？おきた！","おはよう〜","よく眠ってた……"];
+  const MSG_SLEEPY = ["ふぁ……ねむい……","すや……すや……"];
+
+  const MILESTONES = {
+    30:  "はじめての節目！なでなで30回！",
+    50:  "なでなで50回、めんだこごきげん！",
+    100: "100回達成、めんだこ大喜び！",
+    300: "300回！？すごいなでなで愛……",
+    500: "500回、もう家族みたいなもの……",
+    777: "ラッキーななでなで777回！",
+    1000:"1000回なでなで達成……感無量。"
+  };
+
+  /* ---------------- 状態管理 ---------------- */
+  let state = 'normal'; // normal, drowsy, sleep, surprised (顔の一時状態は data-state で別途)
+  let totalPets = 0;
+  const achieved = new Set();
+
+  let isPetting = false;
+  let activePointerId = null;
+  let lastX = 0, lastY = 0, lastMoveTime = 0;
+  let strokeAccum = 0;
+  const STROKE_PX = 22;
+
+  let lastTickTime = 0;
+  let continuousStart = 0;
+
+  let drowsyTimer = null;
+  let sleepTimer = null;
+  let zzzInterval = null;
+  let blinkInterval = null;
+  let messageTimer = null;
+  let faceRelaxTimer = null;
+
+  const DROWSY_MS = 9000;
+  const SLEEP_MS = 18000;
+
+  /* ---------------- ユーティリティ ---------------- */
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  function setFaceState(s) {
+    mendako.dataset.state = s;
+  }
+
+  function showMessage(text, long = false) {
+    clearTimeout(messageTimer);
+    messageBubble.textContent = text;
+    messageBubble.classList.add('show');
+    messageTimer = setTimeout(() => {
+      messageBubble.classList.remove('show');
+    }, long ? 3200 : 1800);
+  }
+
+  function pulseBody(big = false) {
+    bodyGroup.classList.remove('pet-pulse');
+    // 強制リフローでアニメーション再トリガー
+    void bodyGroup.offsetWidth;
+    bodyGroup.classList.add('pet-pulse');
+  }
+
+  function setWiggleSpeed(sec) {
+    mendako.style.setProperty('--wiggle-dur', sec + 's');
+  }
+
+  /* ---------------- エフェクト生成 ---------------- */
+  function spawnEffect(type, x, y, opts = {}) {
+    const el = document.createElement('div');
+    el.className = `fx fx-${type}`;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.setProperty('--dx', (opts.dx ?? rand(-40, 40)) + 'px');
+    el.style.setProperty('--dy', (opts.dy ?? rand(-60, -30)) + 'px');
+    if (opts.size) el.style.setProperty('--size', opts.size + 'px');
+    if (type === 'zzz') el.textContent = 'Z';
+    effectsLayer.appendChild(el);
+    const cleanup = () => el.remove();
+    el.addEventListener('animationend', cleanup, { once: true });
+    setTimeout(cleanup, 3000);
+  }
+
+  function burstEffects(level, x, y) {
+    if (level === 'gentle') {
+      spawnEffect('heart', x, y);
+    } else if (level === 'puru') {
+      spawnEffect('heart', x + rand(-10, 10), y + rand(-10, 10));
+      spawnEffect('heart', x + rand(-10, 10), y + rand(-10, 10));
+      spawnEffect('sparkle', x + rand(-20, 20), y + rand(-20, 20));
+    } else {
+      // storm / super
+      for (let i = 0; i < 3; i++) spawnEffect('heart', x + rand(-24, 24), y + rand(-24, 24));
+      for (let i = 0; i < 2; i++) spawnEffect('sparkle', x + rand(-28, 28), y + rand(-28, 28));
+      spawnEffect('bubble', x + rand(-16, 16), y + rand(10, 24), { size: rand(8, 16) });
+    }
+  }
+
+  function milestoneBurst() {
+    const zoneRect = petZone.getBoundingClientRect();
+    const cx = zoneRect.width / 2;
+    const cy = zoneRect.height / 2;
+    for (let i = 0; i < 10; i++) {
+      const angle = rand(0, Math.PI * 2);
+      const dist = rand(20, 70);
+      spawnEffect(Math.random() < 0.5 ? 'heart' : 'sparkle',
+        cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist);
+    }
+    counterPanel.classList.add('glow');
+    setTimeout(() => counterPanel.classList.remove('glow'), 1400);
+  }
+
+  function spawnZzz() {
+    const zoneRect = petZone.getBoundingClientRect();
+    spawnEffect('zzz', zoneRect.width * 0.62, zoneRect.height * 0.28, { size: rand(14, 24) });
+  }
+
+  /* ---------------- 睡眠・放置まわり ---------------- */
+  function clearIdleTimers() {
+    clearTimeout(drowsyTimer);
+    clearTimeout(sleepTimer);
+  }
+
+  function resetIdleTimers() {
+    clearIdleTimers();
+    if (state === 'sleep') return;
+    drowsyTimer = setTimeout(enterDrowsy, DROWSY_MS);
+    sleepTimer = setTimeout(enterSleep, SLEEP_MS);
+  }
+
+  function enterDrowsy() {
+    if (isPetting || state === 'sleep') return;
+    state = 'drowsy';
+    setFaceState('drowsy');
+    if (Math.random() < 0.6) showMessage(pick(MSG_SLEEPY));
+    hint.classList.add('faded');
+    startBlinking();
+  }
+
+  function startBlinking() {
+    clearInterval(blinkInterval);
+    blinkInterval = setInterval(() => {
+      if (state !== 'drowsy') return;
+      mendako.classList.add('blink');
+      setTimeout(() => mendako.classList.remove('blink'), 220);
+    }, 2600);
+  }
+
+  function enterSleep() {
+    if (isPetting) return;
+    clearInterval(blinkInterval);
+    mendako.classList.remove('blink');
+    state = 'sleep';
+    setFaceState('sleep');
+    setWiggleSpeed(4.2);
+    hint.textContent = 'すやすや……そっとなでてみる？';
+    clearInterval(zzzInterval);
+    zzzInterval = setInterval(spawnZzz, 2200);
+    spawnZzz();
+  }
+
+  function wake() {
+    clearInterval(zzzInterval);
+    clearInterval(blinkInterval);
+    mendako.classList.remove('blink');
+    state = 'surprised';
+    setFaceState('surprised');
+    pulseBody();
+    showMessage(pick(MSG_WAKE));
+    hint.textContent = 'めんだこを撫でてね';
+    hint.classList.remove('faded');
+    setTimeout(() => {
+      if (state === 'surprised') {
+        state = 'normal';
+        setFaceState('normal');
+      }
+    }, 850);
+  }
+
+  /* ---------------- なでなで判定 ---------------- */
+  function onPointerDown(e) {
+    petZone.setPointerCapture(e.pointerId);
+    activePointerId = e.pointerId;
+    isPetting = true;
+    strokeAccum = 0;
+
+    const rect = petZone.getBoundingClientRect();
+    lastX = e.clientX - rect.left;
+    lastY = e.clientY - rect.top;
+    lastMoveTime = performance.now();
+
+    if (state === 'sleep') {
+      wake();
+      continuousStart = performance.now();
+    } else {
+      if (state === 'drowsy') {
+        state = 'normal';
+        setFaceState('normal');
+        clearInterval(blinkInterval);
+        mendako.classList.remove('blink');
+      }
+      continuousStart = performance.now();
+    }
+    hint.classList.add('faded');
+  }
+
+  function onPointerMove(e) {
+    if (!isPetting || e.pointerId !== activePointerId) return;
+    const rect = petZone.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const dx = x - lastX, dy = y - lastY;
+    const dist = Math.hypot(dx, dy);
+    const now = performance.now();
+    const dt = Math.max(now - lastMoveTime, 8);
+    const speed = dist / dt; // px/ms
+
+    strokeAccum += dist;
+    lastX = x; lastY = y; lastMoveTime = now;
+
+    if (strokeAccum >= STROKE_PX) {
+      strokeAccum = 0;
+      onPetTick(speed, x, y);
+    }
+  }
+
+  function endPetting(e) {
+    if (e && e.pointerId !== activePointerId) return;
+    isPetting = false;
+    activePointerId = null;
+    resetIdleTimers();
+  }
+
+  function onPetTick(speed, x, y) {
+    totalPets++;
+    counterValue.textContent = totalPets;
+    counterValue.classList.remove('bump');
+    void counterValue.offsetWidth;
+    counterValue.classList.add('bump');
+
+    const now = performance.now();
+    const gap = now - lastTickTime;
+    lastTickTime = now;
+    if (gap > 800) continuousStart = now;
+    const continuousDur = now - continuousStart;
+
+    resetIdleTimers();
+
+    let level = 'gentle';
+    if (continuousDur > 4200) level = 'storm';
+    else if (continuousDur > 1500) level = 'puru';
+
+    const speedy = speed > 0.9 ? 'fast' : (speed < 0.28 ? 'slow' : 'mid');
+
+    // 表情・揺れの反映
+    let face = 'happy';
+    if (level === 'puru') face = 'puru';
+    if (level === 'storm') face = 'super';
+    setFaceState(face);
+    pulseBody(level === 'storm');
+
+    if (level === 'storm') {
+      mendako.classList.add('flap-fast');
+      setTimeout(() => mendako.classList.remove('flap-fast'), 700);
+    }
+
+    let wiggleDur = 2.4;
+    if (level === 'puru') wiggleDur = 0.9;
+    if (level === 'storm') wiggleDur = 0.5;
+    if (speedy === 'fast') wiggleDur *= 0.75;
+    if (speedy === 'slow') wiggleDur *= 1.2;
+    setWiggleSpeed(Math.max(0.35, wiggleDur));
+
+    burstEffects(level, x, y);
+
+    // 顔を少し経ったら通常に戻す(撫で続けなければ)
+    clearTimeout(faceRelaxTimer);
+    faceRelaxTimer = setTimeout(() => {
+      if (!isPetting && state !== 'sleep' && state !== 'drowsy' && state !== 'surprised') {
+        setFaceState('normal');
+        setWiggleSpeed(2.4);
+      }
+    }, 750);
+
+    // メッセージ
+    const chance = level === 'storm' ? 0.55 : level === 'puru' ? 0.35 : 0.22;
+    if (Math.random() < chance) {
+      const pool = level === 'storm' ? MSG_SUPER : level === 'puru' ? MSG_PURU : MSG_GENTLE;
+      showMessage(pick(pool));
+    }
+
+    // マイルストーン判定
+    if (MILESTONES[totalPets] && !achieved.has(totalPets)) {
+      achieved.add(totalPets);
+      showMessage(MILESTONES[totalPets], true);
+      milestoneBurst();
+    }
+  }
+
+  petZone.addEventListener('pointerdown', onPointerDown);
+  petZone.addEventListener('pointermove', onPointerMove);
+  petZone.addEventListener('pointerup', endPetting);
+  petZone.addEventListener('pointercancel', endPetting);
+  petZone.addEventListener('lostpointercapture', endPetting);
+
+  /* ---------------- 背景の泡演出 ---------------- */
+  function createAmbientBubbles(n) {
+    const field = document.getElementById('bubbleField');
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('div');
+      b.className = 'ambient-bubble';
+      const size = rand(6, 22);
+      b.style.width = size + 'px';
+      b.style.height = size + 'px';
+      b.style.left = rand(2, 96) + 'vw';
+      const duration = rand(9, 19);
+      b.style.animationDuration = duration + 's';
+      b.style.animationDelay = (-rand(0, duration)) + 's';
+      field.appendChild(b);
+    }
+  }
+  createAmbientBubbles(16);
+
+  /* ---------------- 初期化 ---------------- */
+  setFaceState('normal');
+  resetIdleTimers();
+
+})();
+</script>
+</body>
+</html>
