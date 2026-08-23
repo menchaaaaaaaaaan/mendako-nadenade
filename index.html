@@ -223,10 +223,11 @@
     position:relative;
     width:min(78vw,330px);
     height:min(78vw,330px);
-    touch-action:none;
+    touch-action:none;       /* スクロール/ピンチジェスチャーを無効化し、撫でる操作だけを拾う */
     cursor:pointer;
     user-select:none;
     -webkit-user-select:none;
+    -webkit-touch-callout:none; /* iOS Safariで長押し時に「画像を保存」メニューが出るのを防止 */
   }
 
   .mendako-svg{
@@ -324,6 +325,8 @@
     pointer-events:none;  /* クリック判定は親のpet-zoneが受けるので画像自体は素通し */
     user-select:none;
     -webkit-user-drag:none;
+    -webkit-touch-callout:none;
+    touch-action:none;
   }
   /* 状態(data-state)ごとにどの画像を見せるかの対応表 */
   .mendako-svg[data-state="normal"] .img-normal,
@@ -486,11 +489,10 @@
     30:  "はじめての節目！なでなで30回！",
     50:  "なでなで50回、めんだこごきげん！",
     100: "100回達成、めんだこ大喜び！",
-    300: "300回！？めんだこのこと好き？",
-    500: "500回、えへへいっぱいなでなで幸せ〜〜〜",
+    300: "300回！？すごいなでなで愛……",
+    500: "500回、もう家族みたいなもの……",
     777: "ラッキーななでなで777回！",
     1000:"1000回なでなで達成……感無量。"
-    99999:"9999回なでなで！？撫でられすぎてもう数えられない…。"
   };
 
   /* ---------------- 状態管理 ---------------- */
