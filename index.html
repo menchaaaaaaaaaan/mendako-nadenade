@@ -270,15 +270,21 @@
      img-happy / img-sleep の3つだけ用意し、他の data-state の行は
      消すか normal 用の画像を使い回すよう書き換えればOK。
      ===================================================================== */
-  .body-group{
+  /* --- 常時ゆらゆら漂うレイヤー(float-group) ---
+     なでなでのたびに再生されるsquish(ぷるぷる)とは別要素にすることで、
+     何度撫でてもこの漂いのタイマーが巻き戻らず、なめらかに動き続ける。 */
+  .float-group{
     position:relative;
     width:100%;
     height:100%;
     transform-origin:center;
     animation:bob 5.5s ease-in-out infinite;
   }
-  .mendako-svg[data-state="sleep"] .body-group{
+  .mendako-svg[data-state="sleep"] .float-group{
     animation:breathe 3.6s ease-in-out infinite;
+  }
+  .mendako-svg[data-state="surprised"] .float-group{
+    animation:startle 0.55s ease;
   }
   /* 水中でふよふよ漂うイメージ:上下だけでなく左右のゆらぎ・わずかな傾きも加える */
   @keyframes bob{
@@ -292,9 +298,25 @@
     0%,100%{ transform:scale(1,1); }
     50%{ transform:scale(1.02,0.97); }
   }
+  @keyframes startle{
+    0%{ transform:translateY(0) scale(1); }
+    30%{ transform:translateY(-14px) scale(1.06,0.94); }
+    60%{ transform:translateY(2px) scale(0.97,1.04); }
+    100%{ transform:translateY(0) scale(1); }
+  }
 
+  /* --- なでなで反応(pet-pulse)専用レイヤー(body-group) ---
+     こちらは常時アニメーションを持たず、撫でられた瞬間だけ
+     squish/squish-bigを再生する。JS側で毎回クラスを付け外し
+     (強制リフロー)して再生し直すが、影響はこのレイヤーだけに閉じる。 */
+  .body-group{
+    position:relative;
+    width:100%;
+    height:100%;
+    transform-origin:center;
+  }
   .body-group.pet-pulse{
-    animation:squish 0.36s ease, bob 5.5s ease-in-out infinite;
+    animation:squish 0.36s ease;
   }
   .mendako-svg[data-state="super"] .body-group.pet-pulse{
     animation:squish-big 0.5s ease;
@@ -313,16 +335,6 @@
     100%{ transform:scale(1,1); }
   }
 
-  .mendako-svg[data-state="surprised"] .body-group{
-    animation:startle 0.55s ease;
-  }
-  @keyframes startle{
-    0%{ transform:translateY(0) scale(1); }
-    30%{ transform:translateY(-14px) scale(1.06,0.94); }
-    60%{ transform:translateY(2px) scale(0.97,1.04); }
-    100%{ transform:translateY(0) scale(1); }
-  }
-
   /* --- 差分画像本体：全部同じ位置に重ねておき、data-stateで出し分ける --- */
   .mendako-img{
     position:absolute;
@@ -330,21 +342,22 @@
     width:100%;
     height:100%;
     object-fit:contain;
-    display:none;         /* 基本は非表示 */
+    opacity:0;             /* 基本は非表示(displayではなくopacityでフェード切替) */
+    transition:opacity 0.16s ease-out;
     pointer-events:none;  /* クリック判定は親のpet-zoneが受けるので画像自体は素通し */
     user-select:none;
     -webkit-user-drag:none;
     -webkit-touch-callout:none;
     touch-action:none;
   }
-  /* 状態(data-state)ごとにどの画像を見せるかの対応表 */
+  /* 状態(data-state)ごとにどの画像を見せるかの対応表(ふわっとクロスフェード) */
   .mendako-svg[data-state="normal"] .img-normal,
-  .mendako-svg[data-state="drowsy"] .img-normal{ display:block; } /* うとうと中はnormal画像を流用 */
-  .mendako-svg[data-state="happy"]  .img-happy{ display:block; }
-  .mendako-svg[data-state="puru"]   .img-puru{ display:block; }
-  .mendako-svg[data-state="sleep"]  .img-sleep{ display:block; }
-  .mendako-svg[data-state="surprised"] .img-surprised{ display:block; }
-  .mendako-svg[data-state="super"]  .img-super{ display:block; }
+  .mendako-svg[data-state="drowsy"] .img-normal{ opacity:1; } /* うとうと中はnormal画像を流用 */
+  .mendako-svg[data-state="happy"]  .img-happy{ opacity:1; }
+  .mendako-svg[data-state="puru"]   .img-puru{ opacity:1; }
+  .mendako-svg[data-state="sleep"]  .img-sleep{ opacity:1; }
+  .mendako-svg[data-state="surprised"] .img-surprised{ opacity:1; }
+  .mendako-svg[data-state="super"]  .img-super{ opacity:1; }
 
   /* ------- エフェクト ------- */
   .fx{
@@ -414,7 +427,7 @@
   }
 
   @media (prefers-reduced-motion: reduce){
-    .body-group, .fin, .tentacle, .ambient-bubble{ animation:none !important; }
+    .float-group, .body-group, .ambient-bubble{ animation:none !important; }
   }
 </style>
 </head>
@@ -455,6 +468,7 @@
         その場合は img-normal のクラスに "img-puru" も併記しておくと安全です)
       -->
       <div class="mendako-svg" id="mendako" data-state="normal">
+        <div class="float-group" id="floatGroup">
         <div class="body-group" id="bodyGroup">
           <img class="mendako-img img-normal"    src="mendako-normal.png"     alt="めんだこ(通常)">
           <img class="mendako-img img-happy"     src="mendako-happy.png"      alt="めんだこ(うれしい)">
@@ -462,6 +476,7 @@
           <img class="mendako-img img-sleep"     src="mendako-sleep.png"      alt="めんだこ(すやすや)">
           <img class="mendako-img img-surprised" src="mendako-surprised.png"  alt="めんだこ(びっくり)">
           <img class="mendako-img img-super"     src="mendako-super-happy.png" alt="めんだこ(大喜び)">
+        </div>
         </div>
       </div>
 
