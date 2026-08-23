@@ -238,8 +238,13 @@
   }
 
   .effects-layer{
+    /* pet-zoneとぴったり同じ範囲に重ねる。
+       ハート等はJS側でpet-zone基準のカーソル座標(x,y)をそのまま
+       left/topに使っているので、ここがpet-zoneとズレるとカーソル位置と
+       エフェクトの発生位置がズレる。要素自体はposition:absoluteなので
+       このレイヤーの外まで浮き上がっても表示は途切れない(overflow指定なし)。 */
     position:absolute;
-    inset:-30% ;
+    inset:0;
     pointer-events:none;
     z-index:4;
   }
@@ -270,14 +275,18 @@
     width:100%;
     height:100%;
     transform-origin:center;
-    animation:bob 3.2s ease-in-out infinite;
+    animation:bob 5.5s ease-in-out infinite;
   }
   .mendako-svg[data-state="sleep"] .body-group{
     animation:breathe 3.6s ease-in-out infinite;
   }
+  /* 水中でふよふよ漂うイメージ:上下だけでなく左右のゆらぎ・わずかな傾きも加える */
   @keyframes bob{
-    0%,100%{ transform:translateY(0); }
-    50%{ transform:translateY(-5px); }
+    0%  { transform:translate(0px,0px)   rotate(0deg); }
+    22% { transform:translate(4px,-6px)  rotate(1.4deg); }
+    50% { transform:translate(-2px,-10px) rotate(-1deg); }
+    78% { transform:translate(-5px,-4px) rotate(-1.6deg); }
+    100%{ transform:translate(0px,0px)   rotate(0deg); }
   }
   @keyframes breathe{
     0%,100%{ transform:scale(1,1); }
@@ -285,7 +294,7 @@
   }
 
   .body-group.pet-pulse{
-    animation:squish 0.36s ease, bob 3.2s ease-in-out infinite;
+    animation:squish 0.36s ease, bob 5.5s ease-in-out infinite;
   }
   .mendako-svg[data-state="super"] .body-group.pet-pulse{
     animation:squish-big 0.5s ease;
@@ -486,13 +495,14 @@
   const MSG_SLEEPY = ["ふぁ……ねむい……","すや……すや……"];
 
   const MILESTONES = {
-    30:  "はじめての節目！なでなで30回！",
-    50:  "なでなで50回、めんだこごきげん！",
-    100: "100回達成、めんだこ大喜び！",
+    30:  "なでなで30回、優しいね！",
+    50:  "なでなで50回、めんだこ嬉しい！",
+    100: "100回達成、めんだこ幸せ者だ〜〜〜！",
     300: "300回！？すごいなでなで愛……",
-    500: "500回、もう家族みたいなもの……",
+    500: "500回、めんだこ、君のなでなで好き！……",
     777: "ラッキーななでなで777回！",
     1000:"1000回なでなで達成……感無量。"
+    10000:"10000回なでなで!?撫でられすぎて潰れちゃう…"
   };
 
   /* ---------------- 状態管理 ---------------- */
@@ -503,8 +513,19 @@
   let isPetting = false;
   let activePointerId = null;
   let lastX = 0, lastY = 0, lastMoveTime = 0;
-  let strokeAccum = 0;
-  const STROKE_PX = 22;
+
+  /* --- 「1往復で1カウント」の判定用 ---
+     指/マウスの移動を「進行方向が変わるまで」を1レッグ(片道)として区切り、
+     2レッグ(行って→戻る)たまったら1カウントする。
+     こうすることで、なでている間ずっと同じ方向にドリフトしただけの
+     細かい移動でカウントが連打されるのを防ぎ、実際に手を往復させたときだけ
+     カウントが進むようになる。 */
+  let segDirX = null, segDirY = null; // 現在のレッグ(片道)の進行方向(正規化ベクトル)
+  let segDist = 0;                    // 現在のレッグで移動した距離
+  let segStartTime = 0;               // 現在のレッグが始まった時刻(速度計算用)
+  let legsInStroke = 0;               // 完了したレッグの数(2で1カウント)
+  const MIN_LEG_PX = 16;              // これより短い動きは手ブレとして無視
+  const MAX_LEG_PX = 110;             // 一方向にこれだけ動いたら折り返しを待たず強制的に1レッグ扱いにする
 
   let lastTickTime = 0;
   let continuousStart = 0;
@@ -664,7 +685,11 @@
     petZone.setPointerCapture(e.pointerId);
     activePointerId = e.pointerId;
     isPetting = true;
-    strokeAccum = 0;
+
+    segDirX = null; segDirY = null;
+    segDist = 0;
+    legsInStroke = 0;
+    segStartTime = performance.now();
 
     const rect = petZone.getBoundingClientRect();
     lastX = e.clientX - rect.left;
@@ -693,21 +718,75 @@
     const y = e.clientY - rect.top;
     const dx = x - lastX, dy = y - lastY;
     const dist = Math.hypot(dx, dy);
+
+    // ほぼ動いていない(手ブレ程度)場合は座標だけ更新して様子見
+    if (dist < 1.5) { lastX = x; lastY = y; return; }
+
     const now = performance.now();
-    const dt = Math.max(now - lastMoveTime, 8);
-    const speed = dist / dt; // px/ms
+    lastMoveTime = now;
 
-    strokeAccum += dist;
-    lastX = x; lastY = y; lastMoveTime = now;
+    const ux = dx / dist, uy = dy / dist; // 今回の移動の向き(単位ベクトル)
 
-    if (strokeAccum >= STROKE_PX) {
-      strokeAccum = 0;
+    if (segDirX === null) {
+      // レッグの最初の一歩:向きを確定させる
+      segDirX = ux; segDirY = uy;
+      segDist = dist;
+      segStartTime = now;
+    } else {
+      const dot = ux * segDirX + uy * segDirY; // 同じ向きなら+1に近く、逆向きなら-1に近い
+      if (dot >= 0) {
+        // まだ同じ向きに動いている → このレッグを継続
+        segDist += dist;
+      } else {
+        // 向きが反転した → 1レッグ完了、逆向きの新しいレッグを開始
+        completeLeg(x, y);
+        segDirX = ux; segDirY = uy;
+        segDist = dist;
+        segStartTime = now;
+      }
+    }
+
+    // 折り返さずに一方向へ動き続けた場合も、一定距離ごとに1レッグとみなす
+    if (segDist >= MAX_LEG_PX) {
+      completeLeg(x, y);
+      segDist = 0;
+      segStartTime = now;
+    }
+
+    lastX = x; lastY = y;
+  }
+
+  // 1レッグ(片道)が完了したときの処理。2レッグたまったら実際に1カウントする
+  function completeLeg(x, y) {
+    if (segDist < MIN_LEG_PX) return; // 手ブレレベルの動きはレッグとして数えない
+
+    const now = performance.now();
+    const elapsed = Math.max(now - segStartTime, 8);
+    const speed = segDist / elapsed; // px/ms
+
+    legsInStroke++;
+    if (legsInStroke >= 2) {
+      legsInStroke = 0;
       onPetTick(speed, x, y);
     }
   }
 
   function endPetting(e) {
     if (e && e.pointerId !== activePointerId) return;
+
+    // 指を離した時点でまだ判定中だった片道の動きも、レッグとして加算する
+    if (segDist >= MIN_LEG_PX) legsInStroke++;
+
+    // 完全な往復(2レッグ)でなくても、指を離すタイミングは寛容に1カウントする
+    // (例:1回だけサッと撫でて離したケースも、ちゃんと反応させるため)
+    if (legsInStroke >= 1) {
+      const now = performance.now();
+      const elapsed = Math.max(now - segStartTime, 8);
+      onPetTick(segDist > 0 ? segDist / elapsed : 0.3, lastX, lastY);
+    }
+
+    segDirX = null; segDirY = null; segDist = 0; legsInStroke = 0;
+
     isPetting = false;
     activePointerId = null;
     resetIdleTimers();
